@@ -112,7 +112,7 @@ def test_cli_runs_json(tmp_path: Path) -> None:
     assert payload[0]["run_id"] == "sess-cli"
 
 
-def test_errors_index_alias_and_table(tmp_path: Path) -> None:
+def test_failed_alias_and_index_output(tmp_path: Path) -> None:
     base = tmp_path / "proj"
     start = datetime(2024, 1, 6, 9, 0, 0)
     make_history_run(base, start, "15s", "errs", "ERR", "sess-alias")
@@ -121,14 +121,18 @@ def test_errors_index_alias_and_table(tmp_path: Path) -> None:
     touch_with_time(task_dir / ".command.err", start + timedelta(seconds=5))
 
     runner = CliRunner()
-    by_option = runner.invoke(cli, ["--base-dir", str(base), "errors", "--index", "1"])
-    by_arg = runner.invoke(cli, ["--base-dir", str(base), "errors", "1"])
+    list_view = runner.invoke(cli, ["--base-dir", str(base), "failed", "--show", "1"])
+    by_option = runner.invoke(cli, ["--base-dir", str(base), "failed", "--index", "1"])
+    by_arg = runner.invoke(cli, ["--base-dir", str(base), "f", "1"])
 
+    assert list_view.exit_code == 0
+    assert "alias_proc" in list_view.output
+    assert "Work dir" not in list_view.output
+    assert "🪵" in list_view.output
     assert by_option.exit_code == 0
     assert by_arg.exit_code == 0
     assert by_option.output == by_arg.output
-    assert "Work dir" not in by_option.output
-    assert "alias_proc" in by_option.output
+    assert "boom" in by_option.output
 
 
 def test_cli_default_summary(tmp_path: Path) -> None:
@@ -143,7 +147,7 @@ def test_cli_default_summary(tmp_path: Path) -> None:
     result = runner.invoke(cli, ["--base-dir", str(base)])
 
     assert result.exit_code == 0
-    assert "Overall summary" in result.output
+    assert "🪵 Overall summary" in result.output
     assert "sess-summary" in result.output
-    assert "Errors for sess-summary" in result.output
+    assert "Failed tasks for sess-summary" in result.output
     assert "summary_proc" in result.output

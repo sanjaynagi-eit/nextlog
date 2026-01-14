@@ -33,11 +33,15 @@ def _status_style(value: str) -> str:
     return f"[{color}]{value}[/]"
 
 
+def _banner(text: str) -> None:
+    console.print(f"🪵 {text}")
+
+
 def _print_default_summary(ctx: click.Context) -> None:
-    console.print("[bold cyan]Overall summary[/bold cyan]")
+    _banner("[bold cyan]Overall summary[/bold cyan]")
     ctx.invoke(status, run_id=None, as_json=False)
     console.print()
-    ctx.invoke(errors, index=None, index_opt=None, run_id=None, show=5, open_paths=False, as_json=False)
+    ctx.invoke(failed, index=None, index_opt=None, run_id=None, show=5, open_paths=False, as_json=False)
 
 
 @click.group(invoke_without_command=True)
@@ -63,10 +67,11 @@ def runs(ctx: click.Context, limit: int, as_json: bool) -> None:
     if as_json:
         click.echo(json.dumps([asdict(r) for r in runs], default=str, indent=2))
         return
+    _banner("[bold cyan]Recent Nextflow runs[/bold cyan]")
     if not runs:
         console.print("No runs found.")
         return
-    table = Table(title="[bold cyan]Recent Nextflow runs[/bold cyan]", header_style="bold blue", box=None)
+    table = Table(header_style="bold blue", box=None)
     table.add_column("Run ID")
     table.add_column("Name")
     table.add_column("Started")
@@ -97,7 +102,8 @@ def status(ctx: click.Context, run_id: Optional[str], as_json: bool) -> None:
     if as_json:
         click.echo(json.dumps(asdict(status_obj), default=str, indent=2))
         return
-    table = Table(title=f"[bold cyan]Run {run.run_id}[/bold cyan]", header_style="bold blue", box=None)
+    _banner(f"[bold cyan]Run {run.run_id}[/bold cyan]")
+    table = Table(header_style="bold blue", box=None)
     table.add_column("Metric")
     table.add_column("Value")
     table.add_row("Overall", _status_style(status_obj.overall))
@@ -107,15 +113,15 @@ def status(ctx: click.Context, run_id: Optional[str], as_json: bool) -> None:
     console.print(table)
 
 
-@cli.command()
+@cli.command(name="failed")
 @click.option("--run", "run_id", help="Run id or prefix (defaults to most recent).")
 @click.argument("index", required=False, type=int)
-@click.option("--show", default=5, show_default=True, help="How many errors to display.")
-@click.option("--index", "index_opt", type=int, help="Pick a specific error by index (1-based).")
+@click.option("--show", default=5, show_default=True, help="How many failures to display.")
+@click.option("--index", "index_opt", type=int, help="Pick a specific failure by index (1-based).")
 @click.option("--open", "open_paths", is_flag=True, help="Open error files in $PAGER.")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON.")
 @click.pass_context
-def errors(ctx: click.Context, index: Optional[int], run_id: Optional[str], show: int, index_opt: Optional[int], open_paths: bool, as_json: bool) -> None:
+def failed(ctx: click.Context, index: Optional[int], run_id: Optional[str], show: int, index_opt: Optional[int], open_paths: bool, as_json: bool) -> None:
     """Display failing tasks with .command.err content."""
     base_dir: Path = ctx.obj["base_dir"]
     pick_index = index_opt if index_opt is not None else index
@@ -125,16 +131,30 @@ def errors(ctx: click.Context, index: Optional[int], run_id: Optional[str], show
     error_items = get_errors(run, limit=pick_index or show)
     if pick_index is not None:
         if len(error_items) < pick_index:
+            _banner(f"[bold red]Failed tasks for {run.run_id}[/bold red]")
             console.print(f"No failing task found at index {pick_index} for run {run.run_id}")
             return
-        error_items = [error_items[pick_index - 1]]
+        pick = error_items[pick_index - 1]
+        if as_json:
+            click.echo(json.dumps([asdict(pick)], default=str, indent=2))
+            return
+        _banner(f"[bold red]Failure #{pick_index} for {run.run_id}[/bold red]")
+        target_path = pick.err_path if pick.err_path and pick.err_path.exists() else pick.log_path if pick.log_path and pick.log_path.exists() else None
+        if target_path:
+            click.echo(target_path.read_text(errors="replace"))
+        elif pick.err_excerpt:
+            click.echo(pick.err_excerpt)
+        else:
+            console.print("No error file found.")
+        return
     if as_json:
         click.echo(json.dumps([asdict(e) for e in error_items], default=str, indent=2))
         return
+    _banner(f"[bold red]Failed tasks for {run.run_id}[/bold red]")
     if not error_items:
         console.print(f"No failing tasks found for run {run.run_id}")
         return
-    table = Table(title=f"[bold red]Errors for {run.run_id}[/bold red]", header_style="bold blue", box=None)
+    table = Table(header_style="bold blue", box=None)
     table.add_column("#")
     table.add_column("Process")
     table.add_column("Exit")
@@ -156,34 +176,7 @@ def errors(ctx: click.Context, index: Optional[int], run_id: Optional[str], show
         console.print("Pass --open to view .command.err in $PAGER.")
 
 
-@cli.command()
-@click.option("--run", "run_id", help="Run id or prefix (defaults to most recent).")
-@click.option("--index", type=int, help="Index from `nflog errors` (1-based).")
-@click.option("--workdir", type=click.Path(file_okay=False, dir_okay=True), help="Explicit work directory path.")
-@click.option("--json", "as_json", is_flag=True, help="Output JSON.")
-@click.pass_context
-def errfile(ctx: click.Context, run_id: Optional[str], index: Optional[int], workdir: Optional[str], as_json: bool) -> None:
-    """Print the .command.err path for scripting."""
-    if index and workdir:
-        raise click.UsageError("Use either --index or --workdir.")
-    base_dir: Path = ctx.obj["base_dir"]
-    run = get_run(run_id, base_dir)
-    target_path: Optional[Path] = None
-    if workdir:
-        target_path = Path(workdir) / ".command.err"
-    else:
-        errors = get_errors(run, limit=max(index or 1, 1))
-        if not errors:
-            raise click.ClickException("No errors found.")
-        pick = errors[(index - 1) if index else 0]
-        target_path = pick.err_path
-    if not target_path or not target_path.exists():
-        raise click.ClickException("Error file not found.")
-    if as_json:
-        click.echo(json.dumps({"path": str(target_path), "content": target_path.read_text(errors="replace")}, default=str, indent=2))
-        return
-    click.echo(str(target_path))
-    click.echo(target_path.read_text(errors="replace"))
+cli.add_command(failed, "f")
 
 
 def main() -> None:
