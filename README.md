@@ -4,17 +4,11 @@
 
 ## Install
 
+Clone the repo and install with.
+
 ```bash
 pip install -e .
 ```
-
-### One-liner installer
-
-```bash
-REPO_URL=https://github.com/sanjaynagi-eit/nextlog.git bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanjaynagi-eit/nextlog/main/nextlog/install.sh)"
-```
-
-You can also run the script locally after cloning: `REPO_URL=<repo> bash nextlog/install.sh`. Override `TARGET_DIR` or `BRANCH` as needed.
 
 ## CLI usage
 
