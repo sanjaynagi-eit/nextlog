@@ -138,13 +138,22 @@ def failed(ctx: click.Context, index: Optional[int], run_id: Optional[str], show
         if as_json:
             click.echo(json.dumps([asdict(pick)], default=str, indent=2))
             return
-        _banner(f"[bold red]Failure #{pick_index} for {run.run_id}[/bold red]")
-        target_path = pick.err_path if pick.err_path and pick.err_path.exists() else pick.log_path if pick.log_path and pick.log_path.exists() else None
-        if target_path:
-            click.echo(target_path.read_text(errors="replace"))
+        err_text = pick.err_path.read_text(errors="replace") if pick.err_path and pick.err_path.exists() else None
+        log_text = pick.log_path.read_text(errors="replace") if pick.log_path and pick.log_path.exists() else None
+        if err_text and err_text.strip():
+            _banner(f"[bold red]Failure #{pick_index} for {run.run_id} (.command.err)[/bold red]")
+            click.echo(err_text)
+        elif log_text is not None:
+            _banner(f"[bold red]Failure #{pick_index} for {run.run_id} (.command.log)[/bold red]")
+            click.echo(log_text)
+        elif err_text is not None:
+            _banner(f"[bold red]Failure #{pick_index} for {run.run_id} (.command.err)[/bold red]")
+            click.echo(err_text)
         elif pick.err_excerpt:
+            _banner(f"[bold red]Failure #{pick_index} for {run.run_id}[/bold red]")
             click.echo(pick.err_excerpt)
         else:
+            _banner(f"[bold red]Failure #{pick_index} for {run.run_id}[/bold red]")
             console.print("No error file found.")
         return
     if as_json:

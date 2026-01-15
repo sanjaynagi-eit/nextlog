@@ -135,6 +135,23 @@ def test_failed_alias_and_index_output(tmp_path: Path) -> None:
     assert "boom" in by_option.output
 
 
+def test_failed_prefers_log_when_err_empty(tmp_path: Path) -> None:
+    base = tmp_path / "proj"
+    start = datetime(2024, 1, 8, 11, 0, 0)
+    make_history_run(base, start, "25s", "logs", "ERR", "sess-log")
+    task_dir = make_task(base, "ff/task6", 1, err_content="", name="loggy")
+    (task_dir / ".command.log").write_text("log content\nfrom log\n")
+    touch_with_time(task_dir / ".exitcode", start + timedelta(seconds=5))
+    touch_with_time(task_dir / ".command.log", start + timedelta(seconds=5))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--base-dir", str(base), "f", "1"])
+
+    assert result.exit_code == 0
+    assert ".command.log" in result.output
+    assert "log content" in result.output
+
+
 def test_cli_default_summary(tmp_path: Path) -> None:
     base = tmp_path / "proj"
     start = datetime(2024, 1, 7, 10, 0, 0)
