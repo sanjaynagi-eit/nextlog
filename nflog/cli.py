@@ -37,6 +37,19 @@ def _banner(text: str) -> None:
     console.print(f"🪵 {text}")
 
 
+def _emit_tsv(headers: list[str], rows: list[list[object]]) -> None:
+    def _fmt(value: object) -> str:
+        if value is None:
+            return "-"
+        if isinstance(value, Path):
+            return str(value)
+        return str(value).replace("\t", " ").replace("\n", "\\n")
+
+    click.echo("\t".join(headers))
+    for row in rows:
+        click.echo("\t".join(_fmt(item) for item in row))
+
+
 def _print_default_summary(ctx: click.Context) -> None:
     _banner("[bold cyan]Overall summary[/bold cyan]")
     ctx.invoke(status, run_id=None, as_json=False)
@@ -60,12 +73,29 @@ def cli(ctx: click.Context, base_dir: str, debug: bool) -> None:
 @click.option("--limit", default=10, show_default=True, help="Number of runs to show.")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of a table.")
 @click.pass_context
-def runs(ctx: click.Context, limit: int, as_json: bool) -> None:
+@click.option("--tsv", "as_tsv", is_flag=True, help="Output TSV instead of a table.")
+def runs(ctx: click.Context, limit: int, as_json: bool, as_tsv: bool) -> None:
     """List recent runs."""
     base_dir: Path = ctx.obj["base_dir"]
     runs = list_runs(base_dir)[:limit]
+    if as_json and as_tsv:
+        raise click.UsageError("Use only one of --json or --tsv.")
     if as_json:
         click.echo(json.dumps([asdict(r) for r in runs], default=str, indent=2))
+        return
+    if as_tsv:
+        rows = [
+            [
+                run.run_id,
+                run.run_name or "-",
+                run.started.isoformat() if run.started else "-",
+                str(run.duration) if run.duration else "-",
+                run.status,
+                run.work_dir,
+            ]
+            for run in runs
+        ]
+        _emit_tsv(["run_id", "run_name", "started", "duration", "status", "work_dir"], rows)
         return
     _banner("[bold cyan]Recent Nextflow runs[/bold cyan]")
     if not runs:
@@ -94,13 +124,20 @@ def runs(ctx: click.Context, limit: int, as_json: bool) -> None:
 @click.option("--run", "run_id", help="Run id or prefix (defaults to most recent).")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON.")
 @click.pass_context
-def status(ctx: click.Context, run_id: Optional[str], as_json: bool) -> None:
+@click.option("--tsv", "as_tsv", is_flag=True, help="Output TSV instead of a table.")
+def status(ctx: click.Context, run_id: Optional[str], as_json: bool, as_tsv: bool) -> None:
     """Show run status summary."""
     base_dir: Path = ctx.obj["base_dir"]
     run = get_run(run_id, base_dir)
     status_obj = get_status(run)
+    if as_json and as_tsv:
+        raise click.UsageError("Use only one of --json or --tsv.")
     if as_json:
         click.echo(json.dumps(asdict(status_obj), default=str, indent=2))
+        return
+    if as_tsv:
+        rows = [["Overall", status_obj.overall]] + [[k, v] for k, v in status_obj.counts.items()] + [["Derived from", status_obj.details_from]]
+        _emit_tsv(["metric", "value"], rows)
         return
     _banner(f"[bold cyan]Run {run.run_id}[/bold cyan]")
     table = Table(header_style="bold blue", box=None)
@@ -121,10 +158,13 @@ def status(ctx: click.Context, run_id: Optional[str], as_json: bool) -> None:
 @click.option("--open", "open_paths", is_flag=True, help="Open error files in $PAGER.")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON.")
 @click.pass_context
-def failed(ctx: click.Context, index: Optional[int], run_id: Optional[str], show: int, index_opt: Optional[int], open_paths: bool, as_json: bool) -> None:
+@click.option("--tsv", "as_tsv", is_flag=True, help="Output TSV instead of a table.")
+def failed(ctx: click.Context, index: Optional[int], run_id: Optional[str], show: int, index_opt: Optional[int], open_paths: bool, as_json: bool, as_tsv: bool) -> None:
     """Display failing tasks with .command.err content."""
     base_dir: Path = ctx.obj["base_dir"]
     pick_index = index_opt if index_opt is not None else index
+    if as_json and as_tsv:
+        raise click.UsageError("Use only one of --json or --tsv.")
     if pick_index is not None and pick_index < 1:
         raise click.UsageError("Index must be 1 or greater.")
     run = get_run(run_id, base_dir)
@@ -137,6 +177,22 @@ def failed(ctx: click.Context, index: Optional[int], run_id: Optional[str], show
         pick = error_items[pick_index - 1]
         if as_json:
             click.echo(json.dumps([asdict(pick)], default=str, indent=2))
+            return
+        if as_tsv:
+            tail = (pick.err_excerpt or "").splitlines()[-1] if pick.err_excerpt else ""
+            path = pick.err_path if pick.err_path and pick.err_path.exists() else pick.log_path if pick.log_path and pick.log_path.exists() else None
+            _emit_tsv(
+                ["index", "process", "exit_code", "path", "tail"],
+                [
+                    [
+                        pick_index,
+                        pick.process_name or "-",
+                        pick.exit_code if pick.exit_code is not None else "-",
+                        path or "-",
+                        tail,
+                    ]
+                ],
+            )
             return
         err_text = pick.err_path.read_text(errors="replace") if pick.err_path and pick.err_path.exists() else None
         log_text = pick.log_path.read_text(errors="replace") if pick.log_path and pick.log_path.exists() else None
@@ -168,6 +224,20 @@ def failed(ctx: click.Context, index: Optional[int], run_id: Optional[str], show
         return
     if as_json:
         click.echo(json.dumps([asdict(e) for e in error_items], default=str, indent=2))
+        return
+    if as_tsv:
+        rows = []
+        for offset, err in enumerate(error_items, start=1):
+            tail = (err.err_excerpt or "").splitlines()[-1] if err.err_excerpt else ""
+            rows.append(
+                [
+                    offset,
+                    err.process_name or "-",
+                    err.exit_code if err.exit_code is not None else "-",
+                    tail,
+                ]
+            )
+        _emit_tsv(["index", "process", "exit_code", "tail"], rows)
         return
     _banner(f"[bold red]Failed tasks for {run.run_id}[/bold red]")
     if not error_items:

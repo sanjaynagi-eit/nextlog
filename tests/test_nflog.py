@@ -112,6 +112,18 @@ def test_cli_runs_json(tmp_path: Path) -> None:
     assert payload[0]["run_id"] == "sess-cli"
 
 
+def test_cli_runs_tsv(tmp_path: Path) -> None:
+    base = tmp_path / "proj"
+    ts = datetime(2024, 1, 5, 7, 0, 0)
+    make_history_run(base, ts, "20s", "cli", "OK", "sess-cli")
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--base-dir", str(base), "runs", "--tsv", "--limit", "1"])
+    assert result.exit_code == 0
+    lines = result.output.strip().splitlines()
+    assert lines[0].startswith("run_id")
+    assert "sess-cli" in lines[1]
+
+
 def test_failed_alias_and_index_output(tmp_path: Path) -> None:
     base = tmp_path / "proj"
     start = datetime(2024, 1, 6, 9, 0, 0)
@@ -170,3 +182,36 @@ def test_cli_default_summary(tmp_path: Path) -> None:
     assert "sess-summary" in result.output
     assert "Failed tasks for sess-summary" in result.output
     assert "summary_proc" in result.output
+
+
+def test_status_tsv(tmp_path: Path) -> None:
+    base = tmp_path / "proj"
+    start = datetime(2024, 1, 9, 10, 0, 0)
+    make_history_run(base, start, "10s", "stat", "OK", "sess-stat")
+    task_ok = make_task(base, "hh/task-ok", 0, name="ok")
+    touch_with_time(task_ok / ".exitcode", start + timedelta(seconds=2))
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--base-dir", str(base), "status", "--tsv"])
+    assert result.exit_code == 0
+    lines = result.output.strip().splitlines()
+    assert lines[0] == "metric\tvalue"
+    assert "Overall\tsuccess" in lines
+
+
+def test_failed_tsv_list_and_index(tmp_path: Path) -> None:
+    base = tmp_path / "proj"
+    start = datetime(2024, 1, 10, 9, 0, 0)
+    make_history_run(base, start, "20s", "failtsv", "ERR", "sess-tsv")
+    task_dir = make_task(base, "gg/task7", 1, err_content="tsv err line", name="tsv_proc")
+    touch_with_time(task_dir / ".exitcode", start + timedelta(seconds=5))
+    touch_with_time(task_dir / ".command.err", start + timedelta(seconds=5))
+
+    runner = CliRunner()
+    list_out = runner.invoke(cli, ["--base-dir", str(base), "failed", "--tsv"])
+    index_out = runner.invoke(cli, ["--base-dir", str(base), "failed", "--index", "1", "--tsv"])
+
+    assert list_out.exit_code == 0
+    assert index_out.exit_code == 0
+    assert "index\tprocess" in list_out.output
+    assert "tsv_proc" in list_out.output
+    assert "tsv_proc" in index_out.output
