@@ -86,6 +86,7 @@ Inspect a single failure (falls back to `.command.log` when `.command.err` is em
 ```
 $ nflog f 2
 🪵 Failure #2 for sess-456 (.command.log)
+Path: /data/work/xx/yy/.command.log
 <contents of the .command.log file>
 ```
 

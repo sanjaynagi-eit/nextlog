@@ -132,6 +132,7 @@ def test_failed_alias_and_index_output(tmp_path: Path) -> None:
     assert by_option.exit_code == 0
     assert by_arg.exit_code == 0
     assert by_option.output == by_arg.output
+    assert "Path:" in by_option.output
     assert "boom" in by_option.output
 
 
@@ -149,6 +150,7 @@ def test_failed_prefers_log_when_err_empty(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert ".command.log" in result.output
+    assert "Path:" in result.output
     assert "log content" in result.output
 
 
